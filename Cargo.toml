@@ -34,6 +34,7 @@ gmt_dos-systems_m2 = { git = "https://github.com/rconan/dos-actors.git", branch 
 gmt_dos-systems_agws.workspace = true
 tokio = { version = "1.43.0", features = ["full"] }
 env_logger = "0.11.6"
+serde-pickle = "1.2.0"
 
 [features]
 scope = ["gmt_dos-clients_scope", "gmt_dos-clients_scope-client"]
