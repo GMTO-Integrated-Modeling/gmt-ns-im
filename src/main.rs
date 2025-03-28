@@ -188,11 +188,11 @@ async fn main() -> anyhow::Result<()> {
     // ---
 
     // let m2_rbm = Signals::new(42, 3000 + n_bootstrapping).channel(3, 1e-6);
-    let mount_cmd = Signals::new(3, 16001 + n_bootstrapping)
-        .channel(0, -1e-5)
-        .channel(1, 1e-5);
+    let mount_cmd = Signals::new(3, 16001 + n_bootstrapping);
+    // .channel(0, -1e-5)
+    // .channel(1, 1e-5);
     let mut m1_rbm = vec![vec![0f64; 6]; 7];
-    // m1_rbm[0][3] = 1e-6;
+    m1_rbm[6][4] = 1e-6;
     let m1_rbm = Signals::from((m1_rbm, 16001 + n_bootstrapping));
     let adder = Operator::new("+");
     // Bootstrapping the FEM and associated controls
@@ -228,7 +228,7 @@ async fn main() -> anyhow::Result<()> {
     1000: on_axis[Wavefront].. -> on_axis_wavefront
     }
 
-    let print = Print::new(8);
+    // let print = Print::new(8);
     // let timer: Timer = Timer::new(6001);
     type AgwsSh48 = Sh48<{ config::agws::sh48::RATE }>;
     type AgwsSh24 = Sh24<{ config::agws::sh24::RATE }>;
@@ -284,7 +284,7 @@ async fn main() -> anyhow::Result<()> {
     5: {agws::AgwsSh24Kernel}[M2FSMFsmCommand] -> fsm_pzt_int
     1: fsm_pzt_int[M2FSMFsmCommand] -> {servos::GmtM2}
 
-    10_000: {agws::AgwsSh48Kernel}[SensorData]${48*48*6} -> mount_recon[Estimate] -> print
+    10_000: {agws::AgwsSh48Kernel}[SensorData]${48*48*6}// -> mount_recon[Estimate] -> print
     // 5000: {agws::AgwsSh48}[Frame<Host>]! -> sh48_frame
     // 50: {agws::AgwsSh24}[Frame<Host>]! -> sh24_frame
 
