@@ -1,4 +1,4 @@
-use std::{fs::File, time::Instant};
+use std::{env, fs::File, time::Instant};
 
 use faer::{Mat, MatRef};
 use gmt_dos_actors::{actorscript, system::Sys};
@@ -64,7 +64,7 @@ async fn main() -> anyhow::Result<()> {
     let now = Instant::now();
 
     let sim_sampling_frequency = 1000;
-    let sim_duration = 80_usize; // second
+    let sim_duration = 40_usize; // second
     let bootstrapping_duration = 4_usize; // second
     let n_bootstrapping = sim_sampling_frequency * bootstrapping_duration;
     let n_sim = n_bootstrapping + sim_sampling_frequency * sim_duration + 1;
@@ -192,7 +192,7 @@ async fn main() -> anyhow::Result<()> {
     let m1_lom = LinearOpticalModel::new()?;
     let m2_lom = LinearOpticalModel::new()?;
 
-    // Mount reconstructor
+    /* // Mount reconstructor
     let mount_recon: Reconstructor = serde_pickle::from_reader(
         File::open("calibrations/mount/recon_sh48-to-mount.pkl")?,
         Default::default(),
@@ -204,7 +204,7 @@ async fn main() -> anyhow::Result<()> {
         File::open("calibrations/m1/assembly/recon_sh48-to-m1-assembly.pkl")?,
         Default::default(),
     )?;
-    println!("SH48 to Mount reconstructor:\n{m1_recon}");
+    println!("SH48 to Mount reconstructor:\n{m1_recon}"); */
 
     println!("Model built in {}s", now.elapsed().as_secs());
 
@@ -227,14 +227,18 @@ async fn main() -> anyhow::Result<()> {
     let m1_rbm = Signals::from((m1_rbm, n_sim));
     let mut m2_rbm = vec![vec![0f64; 6]; 7];
     m2_rbm[0][0] = 1e-6;
-    // m2_rbm[6][4] = 1e-6;
+    m2_rbm[0][3] = 1e-6;
+    m2_rbm[1][2] = 1e-6;
+    m2_rbm[1][2] = 1e-6;
+    m2_rbm[4][1] = 1e-6;
+    m2_rbm[6][1] = 1e-6;
     let m2_rbm = Signals::from((m2_rbm, n_sim));
     let adder = Operator::new("+");
     let m2_adder = Operator::<f64>::new("+");
     // Bootstrapping the FEM and associated controls
     // let fem = state_space;
 
-    let matfile = MatFile::load("calibrations/m1/modes/20230530_1756_m1_mode_to_force.mat")?;
+    let matfile = MatFile::load("calibrations/m1/modes/20230530_1756_hp_m1_mode_to_force.mat")?;
     let b2f: Vec<Mat<f64>> = (1..=7)
         .map(|i| matfile.var(format!("B2F_{i}")).unwrap())
         .collect();
@@ -248,13 +252,14 @@ async fn main() -> anyhow::Result<()> {
             .collect::<Vec<_>>(),
     );
     let mut m1_bm = vec![vec![0f64; config::m1::segment::N_MODE]; 7];
-    // m1_bm
-    //     .iter_mut()
-    //     .enumerate()
-    //     .take(1)
-    //     .for_each(|(i, b)| b[i] = 1e-6);
+    m1_bm
+        .iter_mut()
+        .enumerate()
+        // .skip(2)
+        // .take(1)
+        .for_each(|(i, b)| b[i] = 1e-6);
     let m1_bm = Signals::from((m1_bm, n_sim));
-    let m1_bms = M1BendingModes::new("calibrations/m1/modes/m1_singular_modes.pkl")?;
+    let m1_bms = M1BendingModes::new("calibrations/m1/modes/hp_m1_singular_modes.pkl")?;
 
     let timer: Timer = Timer::new(n_bootstrapping);
     actorscript! {
@@ -298,27 +303,27 @@ async fn main() -> anyhow::Result<()> {
     println!("SH48 to M2 RBM reconstructor:\n{sh48_m2_rbm_recon}");
     // let pol = PseudoOpenLoop::new(sh48_m2_rbm_recon);
     // M1 RBM SH48 calibration
-    let sh48_m1_rbm_recon: Reconstructor = serde_pickle::from_reader(
-        File::open("calibrations/sh48/open_loop_recon_sh48-to-m1-rxy.pkl")?,
-        Default::default(),
-    )?;
-    println!("SH48 to M1 RBM reconstructor:\n{sh48_m1_rbm_recon}");
-    // let s1 = Sampler::default();
+    // let sh48_m1_rbm_recon: Reconstructor = serde_pickle::from_reader(
+    //     File::open("calibrations/sh48/open_loop_recon_sh48-to-m1-rxy.pkl")?,
+    //     Default::default(),
+    // )?;
+    // println!("SH48 to M1 RBM reconstructor:\n{sh48_m1_rbm_recon}");
+    // // let s1 = Sampler::default();
     let s2 = Sampler::default();
 
     // M1 BM SH48 calibration
-    let sh48_m1_bm_recon: Reconstructor<_, ClosedLoopCalib> = serde_pickle::from_reader(
-        File::open("calibrations/sh48/closed_loop_recon_sh48-to-m1-bm.pkl")?,
-        Default::default(),
-    )?;
+    // let sh48_m1_bm_recon: Reconstructor<_, ClosedLoopCalib> = serde_pickle::from_reader(
+    //     File::open("calibrations/sh48/closed_loop_recon_sh48-to-m1-bm.pkl")?,
+    //     Default::default(),
+    // )?;
     let m1_bm_adder = Operator::<f64>::new("+");
-    let sh48_int = Integrator::new(27 * 7).gain(0.1);
+    let sh48_int = Integrator::new(27 * 7).gain(0.5);
 
     // let sh48_m2_rbm_recon: Reconstructor<_, ClosedLoopCalib> = serde_pickle::from_reader(
     //     File::open("calibrations/sh48/closed_loop_recon_sh48-to-m2-rbm.pkl")?,
     //     Default::default(),
     // )?;
-    println!("SH48 M2 RBM\n{sh48_m1_rbm_recon}");
+    // println!("SH48 M2 RBM\n{sh48_m1_rbm_recon}");
     let mut sh48_m2_rbm_m1_bm_recon = MergeReconstructor::new(
         "calibrations/sh48/closed_loop_recon_sh48-to-m2-rbm.pkl",
         "calibrations/sh48/closed_loop_recon_sh48-to-m1-bm.pkl",
@@ -441,10 +446,11 @@ async fn main() -> anyhow::Result<()> {
     1000: on_axis[Wavefront].. -> on_axis_wavefront
     }
 
-    shub.lock().await.close().await?;
-    (&mut *mount_scopes.lock().await).await?;
-    m1_scopes.lock().await.close().await?;
-    m2_scopes.lock().await.close().await?;
-
+    if env::var("FOREGO_SCOPES").is_err() {
+        shub.lock().await.close().await?;
+        (&mut *mount_scopes.lock().await).await?;
+        m1_scopes.lock().await.close().await?;
+        m2_scopes.lock().await.close().await?;
+    }
     Ok(())
 }

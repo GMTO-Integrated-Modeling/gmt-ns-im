@@ -247,8 +247,8 @@ fn merged_closed_loop(m2_rbm: Vec<Vec<f64>>,om48: &mut OpticalModel<Camera>,kern
     println!("M2 RBM Estimates:");
     m2_rbm_e
         .chunks(6)
-        .map(|x| x.iter().map(|&x| x * 1e6).collect::<Vec<_>>())
-        .for_each(|x| println!("{:6.3?}", x));
+        .map(|x| x.iter().map(|&x| x * 1e9).collect::<Vec<_>>())
+        .for_each(|x| println!("{:6.0?}", x));
 
 let m1_bm_e =   <_ as Write<SplitEstimate<1>>>::write(&mut sh48_m2_rbm_recon).unwrap();
     println!("M1 BM Estimates:");

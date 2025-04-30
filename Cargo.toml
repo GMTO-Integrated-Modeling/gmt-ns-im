@@ -57,3 +57,12 @@ skyangle.workspace = true
 default = ["scope"]
 scope = ["gmt_dos-clients_scope", "gmt_dos-clients_scope-client"]
 
+[patch."https://github.com/rconan/dos-actors.git"]
+gmt_dos-actors = {path = "/home/ubuntu/projects/dos-actors/actors"}
+gmt_dos-clients = {path = "/home/ubuntu/projects/dos-actors/clients/core"}
+gmt_dos-actors-clients_interface = {path = "/home/ubuntu/projects/dos-actors/interface"}
+gmt_dos-clients_fem = {path = "/home/ubuntu/projects/dos-actors/clients/fem"}
+gmt_dos-clients_io = {path = "/home/ubuntu/projects/dos-actors/clients/io"}
+gmt-fem= {path = "/home/ubuntu/projects/dos-actors/clients/fem/model"}
+gmt_dos-clients_servos = {path = "/home/ubuntu/projects/dos-actors/clients/servos"}
+gmt_dos-systems_m1= {path = "/home/ubuntu/projects/dos-actors/systems/m1"}
