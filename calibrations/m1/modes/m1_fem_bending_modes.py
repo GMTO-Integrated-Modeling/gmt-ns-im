@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-.unwrap().var("na_m").unwrap();
 
 # coding: utf-8
 
@@ -16,7 +15,7 @@ import numpy as np
 from scipy.io import loadmat
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
-get_ipython().run_line_magic('matplotlib', 'inline')
+#get_ipython().run_line_magic('matplotlib', 'inline')
 
 
 # In[2]:
