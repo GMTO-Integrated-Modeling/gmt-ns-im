@@ -16,7 +16,7 @@ members = [
   "calibrations/m1/modes",
   "scoring",
   "config",
-  "qp",
+  "qp"
 ]
 
 [workspace.dependencies]
@@ -65,7 +65,7 @@ gmt_dos-clients_transceiver.workspace = true
 gmt_dos-clients_servos = { git = "https://github.com/rconan/dos-actors.git", branch = "gmt-ns-im", version = "3.0.0", features = [
   "cuda",
 ] }
-gmt_dos-systems_agws = { workspace = true, features = ["shk48", "shk24"] }
+gmt_dos-systems_agws = { workspace = true, features = ["shk48", "shk24","qp"] }
 gmt_dos-systems_m1 = { workspace = true, features = ["faer"] }
 tokio.workspace = true
 env_logger = "0.11.6"

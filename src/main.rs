@@ -9,26 +9,21 @@ use anyhow::Context;
 use faer::{Mat, MatRef};
 use gmt_dos_actors::actorscript;
 use gmt_dos_clients::{
-    gain::Gain, iir::IIRFilter, integrator::Integrator, leftright, low_pass_filter::LowPassFilter,
-    operator::Operator, timer::Timer,
+    gain::Gain, iir::IIRFilter, integrator::Integrator, low_pass_filter::LowPassFilter, operator::Operator, timer::Timer
 };
 use gmt_dos_clients_crseo::{
     calibration::Reconstructor,
     crseo::{FromBuilder, Gmt},
 };
 // use gmt_dos_clients_fem::{DiscreteModalSolver, solvers::Exponential};
-use gmt_dos_clients_io::{
-    Estimate,
-    gmt_m1::M1ModeShapes,
-    gmt_m2::{
+use gmt_dos_clients_io::gmt_m2::{
         M2RigidBodyMotions,
         fsm::{M2FSMFsmCommand, M2FSMPiezoNodes},
-    },
-};
+    };
 use gmt_dos_clients_servos::{GmtFem, GmtM1, GmtM2, GmtM2Hex, GmtServoMechanisms, M1SegmentFigure};
 
 use gmt_dos_clients_optics_state::{
-    M1State, MirrorState, OpticalState, OpticsState, arrow::OpticalStateArrow,
+    M1State, M2State, MirrorState, OpticalState, OpticsState, arrow::OpticalStateArrow
 };
 use gmt_dos_clients_transceiver::{Monitor, Transceiver};
 use gmt_dos_clients_windloads::CfdLoads;
@@ -37,24 +32,25 @@ use gmt_dos_systems_agws::{
     agws::{AgwsParts, sh24::Sh24},
     builder::shack_hartmann::ShackHartmannBuilder,
     kernels::KernelFrame,
+    qp::{ActiveOptics, QP},
 };
 use gmt_dos_systems_m1::SingularModes;
 use gmt_fem::FEM;
-use gmt_ns_im::agws::{
-    Sh48Reconstructor,
-    calibration::{self, M2Txyz, Sh48Calibration},
-};
 use interface::{Left, Right, Tick};
 use matio_rs::MatFile;
 
-type K48 = Sh48Reconstructor<{ config::agws::sh48::RATE }>;
-type Sh48ReconstructorKind = calibration::Stack;
+const N_MODE: usize = 271;
+const M1_BM: usize = 27;
+const M1_RBM: usize = 41;
+const M2_RBM: usize = 41;
+
+type K48 = ActiveOptics<{ config::agws::sh48::RATE }, 41, 41, 27, 271>;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
 
-    let data_repo = Path::new(&env::var("DATA_REPO")?).join("main");
+    let data_repo = Path::new(&env::var("DATA_REPO")?).join("qp-main");
     fs::create_dir_all(&data_repo)?;
     unsafe {
         env::set_var("DATA_REPO", data_repo);
@@ -207,6 +203,21 @@ async fn main() -> anyhow::Result<()> {
     )?;
     // println!("SH24 to FSM reconstructor:\n{recon}");
 
+    let data_path = Path::new("/home/ubuntu/projects/im-sim-scripts/aco_loop_example/data");
+    let mut aco = QP::<M1_RBM, M2_RBM, M1_BM, N_MODE>::new(
+        //"../aco_impl_stdalone/SHAcO_qp_rhoP1e-3_kIp5.rs.pkl")
+        //"rustCalib_AcO_rhoP1e-12_kIp5.rs.pkl")
+        data_path.join("rustCalib_AcO_rhoP1e-12_kIp5.agws.pickle"),
+    )?
+    .update_calib(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("qp")
+            .join("sh48_calibration.pkl"),
+    )?
+    .build()?;
+    println!("{aco}");
+    aco.set_controller_gain(0.5f64);
+
     println!(" ==>> Building GMT AGWS");
     let now = Instant::now();
     // GMT optical model builder
@@ -254,12 +265,7 @@ async fn main() -> anyhow::Result<()> {
     }
     .gmt(gmtb.clone())
     .sh24_calibration(recon)
-    .sh48_calibration(
-        // SH48 M2 (closed-loop) Txy and M1 bending modes reconstructor
-        Sh48Calibration::<Sh48ReconstructorKind, M2Txyz>::new()?
-            .m1_modes(config::m1::segment::MODES, config::m1::segment::N_MODE)?
-            .recon()?,
-    )
+    .sh48_calibration(aco)
     .parts()?;
     println!(" ==>> Built GMT AGWS in {:?}", now.elapsed());
 
@@ -311,10 +317,10 @@ async fn main() -> anyhow::Result<()> {
 
     // ===============================
     // -- SH48 M2 RBM integrator
-    let sh48_m2_rbm_int = Integrator::new(42).gain(config::agws::sh48::INTEGRATOR_GAIN);
+    // let sh48_m2_rbm_int = Integrator::new(42).gain(config::agws::sh48::INTEGRATOR_GAIN);
     // -- SH48 M1 bending modes integrator
-    let sh48_m1_bm_int =
-        Integrator::new(7 * config::m1::segment::N_MODE).gain(config::agws::sh48::INTEGRATOR_GAIN);
+    // let sh48_m1_bm_int =
+    // Integrator::new(7 * config::m1::segment::N_MODE).gain(config::agws::sh48::INTEGRATOR_GAIN);
     // ===============================
 
     // ===============================
@@ -384,46 +390,8 @@ async fn main() -> anyhow::Result<()> {
     // let e2o = Estimate2OpticsState::new();
 
     // ===============================
-    // -- SH48 ESTIMATE SPLITTER --
-    //
-    // Split the SH48 command vector between M2 RBMS and M1 bending modes coefficients
-    // The M2 RBMs are all zeros expect for Tx and Ty
-    // The command vector `c` is arranged segment wise i.e `c=[c1,c2,c3,c4,c5,c6,c7]`
-    // and each `ci` is the concantenation of the 6 M2 segment RBMS and the M1 bending modes
-    let split = leftright::LeftRight::<Estimate, leftright::Split>::split_chunks_at(
-        6 + config::m1::segment::N_MODE,
-        6,
-    );
-    // ===============================
-
-    // ===============================
     // -- M2 SH48 RBMS (TXY) and SH24 (RXY) adder --
     let add_m2_rbms = Operator::plus();
-    // ===============================
-
-    // ===============================
-    // -- M1 TXY RBM SCALING FACTOR --
-    //
-    // This is also the same scaling factor applied to the closed-loop calibration
-    // matrix of M2 Txy
-    let m2_txy_scaling = Gain::new(vec![
-        <Sh48ReconstructorKind as calibration::Sh48Reconstructor>::TXY_RESIDUAL_SCALING
-            as f64;
-        42
-    ]);
-    // ===============================
-
-    // ===============================
-    // -- GMT M1 STATE --
-    let m1_state = MirrorState::default().zeros_modes(config::m1::segment::N_MODE);
-    // .set_zero_point(
-    //     MirrorState::default()
-    //         .zeros_modes(config::m1::segment::N_MODE)
-    //         .set_segment_state(
-    //             1,
-    //             SegmentState::modes(vec![0.; config::m1::segment::N_MODE]).set_mode(0, 1e-6),
-    //         ),
-    // );
     // ===============================
 
     // ===============================
@@ -486,6 +454,9 @@ async fn main() -> anyhow::Result<()> {
     // -- HIGH GAIN ADAPTIVE OPTICS INTEGRATED MODEL --
 
     // let aprint = Print::new(6);
+    let aco_optical_state =
+        OpticalState::m1(MirrorState::default().zeros_modes(config::m1::segment::N_MODE));
+    let m2_state = MirrorState::default();
 
     let n_sim = config::SIM_SAMPLING_FREQUENCY * config::HIGH_GAIN_ACO_DURATION + 1;
     if n_sim == 0 {
@@ -501,11 +472,11 @@ async fn main() -> anyhow::Result<()> {
          fsm_pzt_int="FSM\nIntegrator",
          pzt_to_rbm="FSM\nto\nPositioner",
          pzt_to_rbm_int="Positioner\nIntegrator",
-         split="Split SH48 Estimate into\nM2RigidBodyMotions(Left)\n& M1ModeShapes(Right)",
+         // split="Split SH48 Estimate into\nM2RigidBodyMotions(Left)\n& M1ModeShapes(Right)",
          add_m2_rbms="+",
          optical_state_arrow="Optics State\nLog",
-         sh48_m2_rbm_int = "∫ M2RigidBodyMotions",
-         sh48_m1_bm_int = "∫ M1ModeShapes",
+         // sh48_m2_rbm_int = "∫ M2RigidBodyMotions",
+         // sh48_m1_bm_int = "∫ M1ModeShapes",
          gmt_state_tx="🔊"
          )]
     1: timer[Tick] -> {servos::GmtFem}
@@ -527,7 +498,7 @@ async fn main() -> anyhow::Result<()> {
                     -> add_m2_rbms[M2RigidBodyMotions]//${42}
             -> m2_pos_lpf[M2RigidBodyMotions]
                         -> {servos::GmtM2Hex}
-    1: {servos::GmtFem}[M2PositionerNodes]//${84}
+    // 1: {servos::GmtFem}[M2PositionerNodes]//${84}
 
     // M1 edge sensor to RBMs feedback loop
     // 1: {servos::GmtFem}[M1EdgeSensors]!
@@ -543,26 +514,11 @@ async fn main() -> anyhow::Result<()> {
 
     // AGWS SH48 to M2 Txy and M1 bending modes loop
     1:   optical_state[OpticsState] -> sh48
-    1000: sh48[AgwsSh48Frame]! -> sh48_kernel[Estimate]
-        -> split[Left<Estimate>]
-            -> m2_txy_scaling[Left<Estimate>]
-                -> sh48_m2_rbm_int
-    1: sh48_m2_rbm_int[Left<Estimate>]
-                    // -> m2_txy_2_rxy[Left<Estimate>]
-                        -> add_m2_rbms
-    // 1000: sh48_m2_rbm_int[Left<Estimate>] -> m2_txy_2_rxy
-    // 5: m2_txy_2_rxy[M2FSMFsmCommand] -> lpf[M2FSMFsmCommand]${21}
-    // 5: lpf[Offset<M2FSMFsmCommand>] -> fsm_pzt_int
-                    // -> m2_txy_2_rxy[Left<Estimate>]
-    // 1000: sh48[AgwsSh48Frame]! -> sh48_kernel[Estimate]
-    //     -> split[Left<Estimate>]
-    //         -> m2_txy_scaling[Left<Estimate>]
-    //             -> sh48_m2_rbm_int[Left<Estimate>]
-    //                 -> m2_txy_2_rxy[Left<Estimate>]
-    //                     -> add_m2_rbms
-    1000: split[Right<Estimate>]
-        -> sh48_m1_bm_int[M1ModeShapes] -> m1_state
-    1: m1_state[M1State] -> {servos::GmtM1}
+    1000: sh48[AgwsSh48Frame]! -> sh48_kernel[OpticsState] -> aco_optical_state
+    1: aco_optical_state[M1State] -> {servos::GmtM1}
+    1: aco_optical_state[M2State]
+        -> m2_state[Left<M2RigidBodyMotions>]
+            -> add_m2_rbms
 
     // 1000:  sh48_m2_rbm_int[Left<Estimate>] -> m2_pzt_lpf[Left<Estimate>] -> m2_txy_2_rxy
     // 5: m2_txy_2_rxy[Offset<M2FSMFsmCommand>] -> fsm_pzt_int
